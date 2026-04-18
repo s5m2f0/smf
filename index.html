@@ -1,0 +1,273 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <!-- 核心：视口设置，确保移动端正确渲染比例，禁止用户缩放以保护交互体验 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="一个兼容PC和手机端的3D旋转相册网页">
+    <title>3D 响应式旋转相册</title>
+    <style>
+        /* 全局重置与基础样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #111;
+            /* 防止移动端下拉刷新或橡皮筋效果干扰体验 */
+            overscroll-behavior: none;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* 3D场景容器 */
+        .scene {
+            width: 100%;
+            height: 100%;
+            perspective: 1000px; /* 透视深度，值越小3D效果越夸张 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* 禁用默认触摸行为，完全由JS接管 */
+            touch-action: none;
+        }
+
+        /* 旋转核心容器 */
+        .container {
+            position: relative;
+            width: 200px; /* 基准宽度，后续通过JS或媒体查询调整 */
+            height: 300px; /* 基准高度 */
+            transform-style: preserve-3d; /* 关键：保留子元素的3D空间 */
+            transition: transform 0.1s linear; /* 平滑跟随 */
+        }
+
+        /* 图片卡片样式 */
+        .card {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            left: 0;
+            top: 0;
+            background-color: #fff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            /* 背面可见性，根据需求可设为hidden */
+            backface-visibility: visible; 
+            /* 初始透明度，加载完成后由JS控制 */
+            opacity: 0.9;
+            transition: opacity 0.3s, box-shadow 0.3s;
+        }
+
+        .card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* 保持图片比例填充 */
+            pointer-events: none; /* 防止图片被拖拽 */
+            -webkit-user-drag: none;
+        }
+
+        /* 底部光效底座 */
+        .base {
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0) 70%);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotateX(90deg) translateZ(180px); /* 放置在相册下方 */
+            pointer-events: none;
+        }
+
+        /* 提示文字 */
+        .hint {
+            position: absolute;
+            bottom: 30px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-align: center;
+            width: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* 移动端适配媒体查询 */
+        @media (max-width: 768px) {
+            .container {
+                width: 140px;
+                height: 210px;
+            }
+            .base {
+                width: 400px;
+                height: 400px;
+                transform: translate(-50%, -50%) rotateX(90deg) translateZ(120px);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scene" id="scene">
+        <div class="container" id="container">
+            <!-- 图片将通过JS动态生成并排列 -->
+            <div class="base"></div>
+        </div>
+    </div>
+    <div class="hint">拖动屏幕旋转相册</div>
+
+    <script>
+        // 配置项
+        const CONFIG = {
+            imageCount: 12, // 图片数量
+            radius: 280,    // 旋转半径，PC端较大
+            mobileRadius: 180, // 移动端半径
+            autoRotateSpeed: 0.2, // 自动旋转速度
+            dragSensitivity: 0.3 // 拖拽灵敏度
+        };
+
+        const container = document.getElementById('container');
+        const scene = document.getElementById('scene');
+        
+        // 状态变量
+        let currentAngleY = 0;
+        let currentAngleX = -10; // 初始稍微俯视
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let lastX = 0;
+        let lastY = 0;
+        let autoRotateId = null;
+        let isMobile = window.innerWidth <= 768;
+
+        // 初始化图片
+        function initImages() {
+            // 清空除底座外的内容
+            const base = container.querySelector('.base');
+            container.innerHTML = '';
+            container.appendChild(base);
+
+            const radius = isMobile ? CONFIG.mobileRadius : CONFIG.radius;
+            const angleStep = 360 / CONFIG.imageCount;
+
+            for (let i = 0; i < CONFIG.imageCount; i++) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                
+                // 计算每个卡片的3D位置
+                const angle = angleStep * i;
+                // rotateY 决定环绕角度，translateZ 决定离中心的距离
+                card.style.transform = `rotateY(${angle}deg) translateZ(${radius}px)`;
+                
+                // 使用 Picsum 获取随机图片，添加索引避免缓存相同图片
+                const img = document.createElement('img');
+                img.src = `https://picsum.photos/300/450?random=${i}`;
+                img.alt = `相册图片 ${i + 1}`;
+                
+                card.appendChild(img);
+                container.appendChild(card);
+            }
+        }
+
+        // 更新视图变换
+        function updateTransform() {
+            container.style.transform = `rotateX(${currentAngleX}deg) rotateY(${currentAngleY}deg)`;
+        }
+
+        // 自动旋转逻辑
+        function startAutoRotate() {
+            if (autoRotateId) cancelAnimationFrame(autoRotateId);
+            
+            function animate() {
+                if (!isDragging) {
+                    currentAngleY += CONFIG.autoRotateSpeed;
+                    updateTransform();
+                }
+                autoRotateId = requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        // 事件处理：鼠标/触摸开始
+        function handleStart(x, y) {
+            isDragging = true;
+            startX = x;
+            startY = y;
+            lastX = x;
+            lastY = y;
+            // 拖拽时暂停自动旋转的增量，但保持动画帧运行以便平滑恢复
+        }
+
+        // 事件处理：鼠标/触摸移动
+        function handleMove(x, y) {
+            if (!isDragging) return;
+            
+            const deltaX = x - lastX;
+            const deltaY = y - lastY;
+            
+            // 更新角度
+            currentAngleY += deltaX * CONFIG.dragSensitivity;
+            currentAngleX -= deltaY * CONFIG.dragSensitivity;
+            
+            // 限制X轴旋转角度，防止翻转过头 (-60 到 60度)
+            currentAngleX = Math.max(-60, Math.min(60, currentAngleX));
+            
+            lastX = x;
+            lastY = y;
+            
+            updateTransform();
+        }
+
+        // 事件处理：鼠标/触摸结束
+        function handleEnd() {
+            isDragging = false;
+        }
+
+        // 绑定PC端鼠标事件
+        scene.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
+        window.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
+        window.addEventListener('mouseup', handleEnd);
+
+        // 绑定移动端触摸事件
+        scene.addEventListener('touchstart', (e) => {
+            // 阻止默认滚动
+            if(e.cancelable) e.preventDefault(); 
+            handleStart(e.touches.clientX, e.touches.clientY);
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if(e.cancelable) e.preventDefault();
+            handleMove(e.touches.clientX, e.touches.clientY);
+        }, { passive: false });
+
+        window.addEventListener('touchend', handleEnd);
+
+        // 窗口大小改变时重新初始化以适应半径变化
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                const newIsMobile = window.innerWidth <= 768;
+                if (newIsMobile !== isMobile) {
+                    isMobile = newIsMobile;
+                    initImages();
+                }
+            }, 200);
+        });
+
+        // 启动
+        initImages();
+        startAutoRotate();
+
+    </script>
+</body>
+</html>
